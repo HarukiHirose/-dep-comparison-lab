@@ -1,0 +1,38 @@
+name: Collect dependency comparison metrics
+
+on:
+  schedule:
+    - cron: "0 0 * * *" # 毎日UTC 0時
+  workflow_dispatch: {} # 手動実行も可能
+
+permissions:
+  contents: write
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install legacy-todo-app dependencies
+        run: npm install
+        working-directory: legacy-todo-app
+
+      - name: Install zero-dep-todo-app dependencies
+        run: npm install
+        working-directory: zero-dep-todo-app
+
+      - name: Run metrics collection
+        run: node metrics/collect.mjs
+
+      - name: Commit updated metrics history
+        run: |
+          git config user.name "metrics-bot"
+          git config user.email "actions@github.com"
+          git add metrics/history.jsonl
+          git diff --cached --quiet || git commit -m "chore: record daily metrics ($(date -u +%Y-%m-%d))"
+          git push

@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>依存関係diff — legacy vs zero-dep</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #0b0e14;
+    --panel: #121722;
+    --panel-border: #232b3a;
+    --text: #c9d1d9;
+    --text-dim: #6e7887;
+    --legacy: #f85149;
+    --legacy-dim: #f8514933;
+    --zerodep: #3fb950;
+    --zerodep-dim: #3fb95033;
+    --amber: #d29922;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Space Grotesk', sans-serif;
+    padding: 0 0 80px;
+  }
+  .mono { font-family: 'JetBrains Mono', monospace; }
+
+  header {
+    padding: 56px 32px 32px;
+    max-width: 1100px;
+    margin: 0 auto;
+    border-bottom: 1px solid var(--panel-border);
+  }
+  .eyebrow {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--text-dim);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-bottom: 12px;
+  }
+  h1 {
+    font-size: 34px;
+    font-weight: 700;
+    margin: 0 0 16px;
+    line-height: 1.25;
+  }
+  h1 .diff-add { color: var(--zerodep); }
+  h1 .diff-rem { color: var(--legacy); }
+  .hypothesis {
+    color: var(--text-dim);
+    font-size: 15px;
+    line-height: 1.7;
+    max-width: 720px;
+  }
+
+  .legend-row {
+    display: flex;
+    gap: 24px;
+    margin-top: 24px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+  }
+  .legend-item { display: flex; align-items: center; gap: 8px; color: var(--text-dim); }
+  .swatch { width: 10px; height: 10px; border-radius: 2px; }
+
+  main { max-width: 1100px; margin: 0 auto; padding: 40px 32px 0; }
+
+  .snapshot-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 16px;
+    margin-bottom: 48px;
+  }
+  .stat-card {
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: 8px;
+    padding: 20px;
+  }
+  .stat-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 12px;
+  }
+  .stat-diff {
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .stat-diff .val { font-size: 26px; font-weight: 600; }
+  .stat-diff .val.legacy { color: var(--legacy); }
+  .stat-diff .val.zerodep { color: var(--zerodep); }
+  .stat-diff .tag {
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    color: var(--text-dim);
+  }
+
+  section.chart-section {
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: 8px;
+    padding: 24px;
+    margin-bottom: 24px;
+  }
+  .chart-title {
+    font-size: 16px;
+    font-weight: 600;
+    margin: 0 0 4px;
+  }
+  .chart-sub {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--text-dim);
+    margin: 0 0 20px;
+  }
+  canvas { max-height: 280px; }
+
+  footer {
+    max-width: 1100px;
+    margin: 40px auto 0;
+    padding: 0 32px;
+    color: var(--text-dim);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    line-height: 1.8;
+  }
+  #status {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--amber);
+    margin-top: 12px;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="eyebrow">dependency comparison lab · running since first commit</div>
+  <h1>legacy<span class="diff-rem"> −deps</span> vs zero-dep<span class="diff-add"> +native</span> の長期観測</h1>
+  <p class="hypothesis">
+    同一機能のToDo APIを2系統(外部ライブラリ依存版 / 生成AIによるゼロディペンデンシー再実装版)で
+    運用し続け、脆弱性の発生・破壊的変更への追従コスト・ビルド速度・保守コストがどう分岐していくかを
+    定点観測しています。データは <span class="mono">metrics/history.jsonl</span> に日次で追記されます。
+  </p>
+  <div class="legend-row">
+    <div class="legend-item"><span class="swatch" style="background:var(--legacy)"></span>legacy-todo-app (express / bcrypt / jsonwebtoken / zod / better-sqlite3)</div>
+    <div class="legend-item"><span class="swatch" style="background:var(--zerodep)"></span>zero-dep-todo-app (node:* のみ)</div>
+  </div>
+  <div id="status"></div>
+</header>
+
+<main>
+  <div class="snapshot-grid" id="snapshot-grid"></div>
+
+  <section class="chart-section">
+    <p class="chart-title">依存パッケージ数の推移</p>
+    <p class="chart-sub">direct + transitive dependency count</p>
+    <canvas id="chart-deps"></canvas>
+  </section>
+
+  <section class="chart-section">
+    <p class="chart-title">脆弱性(CVE)件数の推移</p>
+    <p class="chart-sub">npm audit: critical + high + moderate + low の合計</p>
+    <canvas id="chart-vulns"></canvas>
+  </section>
+
+  <section class="chart-section">
+    <p class="chart-title">ビルド時間の推移</p>
+    <p class="chart-sub">tsc --noEmit 実行時間 (ms)</p>
+    <canvas id="chart-build"></canvas>
+  </section>
+
+  <section class="chart-section">
+    <p class="chart-title">node_modules サイズの推移</p>
+    <p class="chart-sub">bytes</p>
+    <canvas id="chart-size"></canvas>
+  </section>
+
+  <section class="chart-section">
+    <p class="chart-title">コード行数(LOC)の推移</p>
+    <p class="chart-sub">src/**/*.ts の総行数</p>
+    <canvas id="chart-loc"></canvas>
+  </section>
+</main>
+
+<footer>
+  data source: ../metrics/history.jsonl (見つからない場合はサンプルデータを表示中)<br>
+  collection: .github/workflows/collect-metrics.yml が毎日自動実行 → metrics/collect.mjs
+</footer>
+
+<script>
+const FALLBACK_JSONL = `{"timestamp":"2026-07-01T00:00:00.000Z","apps":{"legacy":{"dependencies":{"direct":7,"transitive":112},"vulnerabilities":{"critical":0,"high":0,"moderate":1,"low":2},"outdatedPackages":0,"buildTimeMs":1840,"nodeModulesBytes":18874368,"linesOfCode":210},"zero-dep":{"dependencies":{"direct":0,"transitive":0},"vulnerabilities":{"critical":0,"high":0,"moderate":0,"low":0},"outdatedPackages":0,"buildTimeMs":410,"nodeModulesBytes":0,"linesOfCode":260}}}
+{"timestamp":"2026-07-08T00:00:00.000Z","apps":{"legacy":{"dependencies":{"direct":7,"transitive":112},"vulnerabilities":{"critical":0,"high":1,"moderate":1,"low":2},"outdatedPackages":2,"buildTimeMs":1910,"nodeModulesBytes":18923520,"linesOfCode":210},"zero-dep":{"dependencies":{"direct":0,"transitive":0},"vulnerabilities":{"critical":0,"high":0,"moderate":0,"low":0},"outdatedPackages":0,"buildTimeMs":405,"nodeModulesBytes":0,"linesOfCode":260}}}
+{"timestamp":"2026-07-15T00:00:00.000Z","apps":{"legacy":{"dependencies":{"direct":7,"transitive":114},"vulnerabilities":{"critical":0,"high":1,"moderate":2,"low":2},"outdatedPackages":3,"buildTimeMs":1975,"nodeModulesBytes":19124224,"linesOfCode":212},"zero-dep":{"dependencies":{"direct":0,"transitive":0},"vulnerabilities":{"critical":0,"high":0,"moderate":0,"low":0},"outdatedPackages":0,"buildTimeMs":398,"nodeModulesBytes":0,"linesOfCode":263}}}`;
+
+function parseJsonl(text) {
+  return text.trim().split("\n").filter(Boolean).map(line => JSON.parse(line));
+}
+
+async function loadHistory() {
+  try {
+    const res = await fetch("../metrics/history.jsonl", { cache: "no-store" });
+    if (!res.ok) throw new Error("not found");
+    const text = await res.text();
+    document.getElementById("status").textContent = "";
+    return parseJsonl(text);
+  } catch {
+    document.getElementById("status").textContent =
+      "⚠ metrics/history.jsonl を取得できないため、サンプルデータを表示しています。ローカルサーバー経由で開くか、実データ収集後に再読み込みしてください。";
+    return parseJsonl(FALLBACK_JSONL);
+  }
+}
+
+function fmtDate(iso) {
+  const d = new Date(iso);
+  return `${d.getMonth() + 1}/${d.getDate()}`;
+}
+
+function sumVulns(v) {
+  return v.critical + v.high + v.moderate + v.low;
+}
+
+function fmtBytes(n) {
+  if (n === 0) return "0";
+  const kb = n / 1024;
+  if (kb < 1024) return kb.toFixed(0) + "KB";
+  return (kb / 1024).toFixed(1) + "MB";
+}
+
+function renderSnapshot(records) {
+  const latest = records[records.length - 1];
+  const l = latest.apps.legacy;
+  const z = latest.apps["zero-dep"];
+  const grid = document.getElementById("snapshot-grid");
+
+  const cards = [
+    {
+      label: "dependencies (direct+transitive)",
+      lv: `${l.dependencies.direct}+${l.dependencies.transitive}`,
+      zv: `${z.dependencies.direct}+${z.dependencies.transitive}`,
+    },
+    { label: "vulnerabilities (total)", lv: sumVulns(l.vulnerabilities), zv: sumVulns(z.vulnerabilities) },
+    { label: "outdated packages", lv: l.outdatedPackages, zv: z.outdatedPackages },
+    { label: "build time", lv: l.buildTimeMs + "ms", zv: z.buildTimeMs + "ms" },
+    { label: "node_modules size", lv: fmtBytes(l.nodeModulesBytes), zv: fmtBytes(z.nodeModulesBytes) },
+    { label: "lines of code", lv: l.linesOfCode, zv: z.linesOfCode },
+  ];
+
+  grid.innerHTML = cards.map(c => `
+    <div class="stat-card">
+      <div class="stat-label">${c.label}</div>
+      <div class="stat-diff">
+        <span class="val legacy mono">${c.lv}</span>
+        <span class="val zerodep mono">${c.zv}</span>
+      </div>
+    </div>
+  `).join("");
+}
+
+function baseDatasetStyle(color) {
+  return {
+    borderColor: color,
+    backgroundColor: color + "22",
+    pointBackgroundColor: color,
+    pointRadius: 3,
+    tension: 0.25,
+    fill: true,
+    borderWidth: 2,
+  };
+}
+
+function makeChart(canvasId, labels, legacyData, zerodepData) {
+  const ctx = document.getElementById(canvasId).getContext("2d");
+  new Chart(ctx, {
+    type: "line",
+    data: {
+      labels,
+      datasets: [
+        { label: "legacy", data: legacyData, ...baseDatasetStyle("#f85149") },
+        { label: "zero-dep", data: zerodepData, ...baseDatasetStyle("#3fb950") },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { labels: { color: "#c9d1d9", font: { family: "JetBrains Mono", size: 11 } } },
+      },
+      scales: {
+        x: { ticks: { color: "#6e7887", font: { family: "JetBrains Mono", size: 10 } }, grid: { color: "#232b3a" } },
+        y: { ticks: { color: "#6e7887", font: { family: "JetBrains Mono", size: 10 } }, grid: { color: "#232b3a" }, beginAtZero: true },
+      },
+    },
+  });
+  document.getElementById(canvasId).parentElement.style.height = "300px";
+}
+
+(async () => {
+  const records = await loadHistory();
+  renderSnapshot(records);
+
+  const labels = records.map(r => fmtDate(r.timestamp));
+
+  makeChart("chart-deps", labels,
+    records.map(r => r.apps.legacy.dependencies.direct + r.apps.legacy.dependencies.transitive),
+    records.map(r => r.apps["zero-dep"].dependencies.direct + r.apps["zero-dep"].dependencies.transitive)
+  );
+  makeChart("chart-vulns", labels,
+    records.map(r => sumVulns(r.apps.legacy.vulnerabilities)),
+    records.map(r => sumVulns(r.apps["zero-dep"].vulnerabilities))
+  );
+  makeChart("chart-build", labels,
+    records.map(r => r.apps.legacy.buildTimeMs),
+    records.map(r => r.apps["zero-dep"].buildTimeMs)
+  );
+  makeChart("chart-size", labels,
+    records.map(r => r.apps.legacy.nodeModulesBytes),
+    records.map(r => r.apps["zero-dep"].nodeModulesBytes)
+  );
+  makeChart("chart-loc", labels,
+    records.map(r => r.apps.legacy.linesOfCode),
+    records.map(r => r.apps["zero-dep"].linesOfCode)
+  );
+})();
+</script>
+</body>
+</html>
