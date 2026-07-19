@@ -193,6 +193,24 @@
     <p class="chart-sub">src/**/*.ts の総行数</p>
     <canvas id="chart-loc"></canvas>
   </section>
+
+  <section class="chart-section">
+    <p class="chart-title">E2Eテスト: サーバー起動時間の推移</p>
+    <p class="chart-sub">register→login→タスクCRUDを実際に実行し、起動〜疎通確立までのms</p>
+    <canvas id="chart-boot"></canvas>
+  </section>
+
+  <section class="chart-section">
+    <p class="chart-title">E2Eテスト: メモリ使用量の推移</p>
+    <p class="chart-sub">起動直後のRSS(KB)。node_modulesサイズとは別の「実行時」の重さ</p>
+    <canvas id="chart-memory"></canvas>
+  </section>
+
+  <section class="chart-section">
+    <p class="chart-title">E2Eテスト: 平均レスポンスタイムの推移</p>
+    <p class="chart-sub">register/login/create/list/update/deleteの各リクエストの平均ms</p>
+    <canvas id="chart-response"></canvas>
+  </section>
 </main>
 
 <footer>
@@ -256,6 +274,17 @@ function renderSnapshot(records) {
     { label: "build time", lv: l.buildTimeMs + "ms", zv: z.buildTimeMs + "ms" },
     { label: "node_modules size", lv: fmtBytes(l.nodeModulesBytes), zv: fmtBytes(z.nodeModulesBytes) },
     { label: "lines of code", lv: l.linesOfCode, zv: z.linesOfCode },
+    {
+      label: "E2E test result",
+      lv: l.e2e ? (l.e2e.allPassed ? "✓ pass" : "✗ fail") : "—",
+      zv: z.e2e ? (z.e2e.allPassed ? "✓ pass" : "✗ fail") : "—",
+    },
+    { label: "boot time", lv: l.e2e?.bootMs != null ? l.e2e.bootMs + "ms" : "—", zv: z.e2e?.bootMs != null ? z.e2e.bootMs + "ms" : "—" },
+    {
+      label: "memory (RSS)",
+      lv: l.e2e?.memoryKb != null ? (l.e2e.memoryKb / 1024).toFixed(1) + "MB" : "—",
+      zv: z.e2e?.memoryKb != null ? (z.e2e.memoryKb / 1024).toFixed(1) + "MB" : "—",
+    },
   ];
 
   grid.innerHTML = cards.map(c => `
@@ -333,6 +362,27 @@ function makeChart(canvasId, labels, legacyData, zerodepData) {
     records.map(r => r.apps.legacy.linesOfCode),
     records.map(r => r.apps["zero-dep"].linesOfCode)
   );
+
+  const hasE2E = records.some(r => r.apps.legacy.e2e || r.apps["zero-dep"].e2e);
+  if (hasE2E) {
+    makeChart("chart-boot", labels,
+      records.map(r => r.apps.legacy.e2e?.bootMs ?? null),
+      records.map(r => r.apps["zero-dep"].e2e?.bootMs ?? null)
+    );
+    makeChart("chart-memory", labels,
+      records.map(r => r.apps.legacy.e2e?.memoryKb ?? null),
+      records.map(r => r.apps["zero-dep"].e2e?.memoryKb ?? null)
+    );
+    makeChart("chart-response", labels,
+      records.map(r => r.apps.legacy.e2e?.avgStepMs ?? null),
+      records.map(r => r.apps["zero-dep"].e2e?.avgStepMs ?? null)
+    );
+  } else {
+    ["chart-boot", "chart-memory", "chart-response"].forEach(id => {
+      document.getElementById(id).parentElement.innerHTML +=
+        '<p class="chart-sub">まだE2Eデータがありません(次回の自動収集以降に表示されます)</p>';
+    });
+  }
 })();
 </script>
 </body>

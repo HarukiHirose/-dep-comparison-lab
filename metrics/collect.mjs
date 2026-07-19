@@ -7,12 +7,13 @@ import { execSync } from "node:child_process";
 import { readdirSync, statSync, existsSync, appendFileSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { runE2E } from "./e2e-test.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, "..");
 const APPS = [
-  { name: "legacy", dir: path.join(ROOT, "legacy-todo-app") },
-  { name: "zero-dep", dir: path.join(ROOT, "zero-dep-todo-app") },
+  { name: "legacy", dir: path.join(ROOT, "legacy-todo-app"), port: 5001 },
+  { name: "zero-dep", dir: path.join(ROOT, "zero-dep-todo-app"), port: 5002 },
 ];
 
 function sh(cmd, cwd) {
@@ -104,6 +105,14 @@ const record = { timestamp, apps: {} };
 
 for (const app of APPS) {
   const deps = countDependencies(app.dir);
+
+  let e2e = null;
+  try {
+    e2e = await runE2E(app.dir, app.name, app.port);
+  } catch (e) {
+    e2e = { variant: app.name, allPassed: false, error: String(e?.message ?? e) };
+  }
+
   record.apps[app.name] = {
     dependencies: deps,
     vulnerabilities: npmAuditCounts(app.dir),
@@ -111,6 +120,14 @@ for (const app of APPS) {
     buildTimeMs: measureBuildTime(app.dir),
     nodeModulesBytes: dirSize(path.join(app.dir, "node_modules")),
     linesOfCode: countLoc(path.join(app.dir, "src")),
+    e2e: {
+      allPassed: e2e.allPassed,
+      bootMs: e2e.bootMs ?? null,
+      buildMs: e2e.buildMs ?? null,
+      avgStepMs: e2e.avgStepMs ?? null,
+      memoryKb: e2e.memoryKb ?? null,
+      failedSteps: (e2e.steps ?? []).filter((s) => !s.ok).map((s) => s.name),
+    },
   };
 }
 
